@@ -9,14 +9,14 @@ from datetime import datetime
 # This is v1. Note: A breaking change is coming at 11:00 AM!
 
 class UnifiedDocument(BaseModel):
-    # TODO: Define the v1 schema. 
-    # Suggested fields: document_id, content, source_type, author, timestamp, metadata
+    # v1 schema
+    document_id: str = Field(..., description="Unique identifier for the document")
+    content: str = Field(..., description="The main text or extracted data")
+    source_type: str = Field(..., description="Source of the data (PDF, CSV, HTML, etc.)")
+    author: Optional[str] = Field("Unknown", description="Author of the document")
+    timestamp: Optional[datetime] = Field(None, description="When the document was created or processed")
+    source_metadata: dict = Field(default_factory=dict, description="Source-specific metadata")
     
-    document_id: str
-    content: str
-    source_type: str # e.g., 'PDF', 'Video', 'HTML', 'CSV', 'Code'
-    author: Optional[str] = "Unknown"
-    timestamp: Optional[datetime] = None
-    
-    # You might want a dict for source-specific metadata
-    source_metadata: dict = Field(default_factory=dict)
+    # Optional: status for quality gate tracking
+    quality_score: float = Field(1.0, description="Score from quality gate (0.0 to 1.0)")
+    is_valid: bool = Field(True, description="Flag for validity after quality check")
