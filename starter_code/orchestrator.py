@@ -1,6 +1,7 @@
 import json
 import time
 import os
+from typing import Any, Dict, List
 
 # Robust path handling
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -23,7 +24,8 @@ from quality_check import run_quality_gate
 
 def main():
     start_time = time.time()
-    final_kb = []
+    final_kb: List[Dict[str, Any]] = []
+    stage_durations: Dict[str, float] = {}
     
     # --- FILE PATH SETUP (Handled for students) ---
     pdf_path = os.path.join(RAW_DATA_DIR, "lecture_notes.pdf")
@@ -35,14 +37,63 @@ def main():
     output_path = os.path.join(os.path.dirname(SCRIPT_DIR), "processed_knowledge_base.json")
     # ----------------------------------------------
 
-    # TODO: Call each processing function (extract_pdf_data, clean_transcript, etc.)
-    # TODO: Run quality gates (run_quality_gate) before adding to final_kb
-    # TODO: Save final_kb to output_path using json.dump
-    
-    # Example:
-    # doc = extract_pdf_data(pdf_path)
-    # if doc and run_quality_gate(doc):
-    #     final_kb.append(doc)
+    sources = [
+        ("pdf", extract_pdf_data, pdf_path),
+        ("transcript", clean_transcript, trans_path),
+        ("html", parse_html_catalog, html_path),
+        ("csv", process_sales_csv, csv_path),
+        ("legacy_code", extract_logic_from_code, code_path),
+    ]
+
+    for source_name, processor, file_path in sources:
+        stage_start = time.time()
+
+        if not os.path.exists(file_path):
+            print(f"[{source_name}] Missing input file: {file_path}. Skipping.")
+            stage_durations[source_name] = time.time() - stage_start
+            continue
+
+        try:
+            result = processor(file_path)
+        except Exception as exc:
+            print(f"[{source_name}] Processor error: {exc}")
+            stage_durations[source_name] = time.time() - stage_start
+            continue
+
+        documents = result if isinstance(result, list) else [result]
+        accepted_count = 0
+
+        for doc in documents:
+            if not isinstance(doc, dict):
+                print(f"[{source_name}] Ignored non-dict output.")
+                continue
+
+            if not run_quality_gate(doc):
+                print(f"[{source_name}] Rejected by quality gate: {doc.get('document_id', 'unknown-id')}")
+                continue
+
+            try:
+                validated = UnifiedDocument(**doc)
+            except Exception as exc:
+                print(
+                    f"[{source_name}] Schema validation failed for "
+                    f"{doc.get('document_id', 'unknown-id')}: {exc}"
+                )
+                continue
+
+            final_kb.append(validated.model_dump(mode="json"))
+            accepted_count += 1
+
+        stage_durations[source_name] = time.time() - stage_start
+        print(f"[{source_name}] Accepted {accepted_count}/{len(documents)} documents.")
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(final_kb, f, ensure_ascii=False, indent=2)
+
+    print("Stage timings (seconds):")
+    for source_name, duration in stage_durations.items():
+        print(f"  - {source_name}: {duration:.2f}")
+    print(f"Output file: {output_path}")
 
     end_time = time.time()
     print(f"Pipeline finished in {end_time - start_time:.2f} seconds.")
